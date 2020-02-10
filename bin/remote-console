@@ -1,0 +1,96 @@
+#!/usr/bin/env ruby
+
+require 'dry-configurable'
+require 'json'
+
+module Command
+  extend Dry::Configurable
+
+  setting :forward_postgresql, true
+  setting :forward_redis, true
+  setting :remote_db_host, 'localhost'
+  setting :remote_db_name
+  setting :remote_db_password
+  setting :remote_db_port, 5432
+  setting :remote_db_user
+  setting :remote_host
+  setting :remote_redis_host, 'localhost'
+  setting :remote_redis_port, 6379
+  setting :ssh_control_path, '/tmp/hanami-remote-console.sock'
+  
+  extend self
+
+  def load_config
+    File.open('./.remote-console.json', 'r') do |f|
+      JSON.parse(f.read).each do |key, value|
+        config.__send__("#{key}=", value)
+      end
+    end
+  rescue Errno::ENOENT
+    abort 'Config not found: ./.remote-console.json'
+  end
+end
+
+Command.load_config
+
+module Console
+  extend self
+
+  def env
+    {
+      'DATABASE_URL' => 'postgresql://%s:%s@localhost:7000/%s' % [
+        Command.config.remote_db_user,
+        Command.config.remote_db_password,
+        Command.config.remote_db_name,
+      ],
+      'HANAMI_ENV' => 'production',
+      'REDIS_URL' => 'redis://localhost:7001',
+    }
+  end
+
+  def start
+    system Console.env, 'bundle exec hanami console'
+  end
+end
+
+module Tunnel
+  extend self
+
+  def stop
+    args = []
+    args << '-O' << 'exit'
+    args << '-o' << "ControlPath=#{Command.config.ssh_control_path}"
+    args << Command.config.remote_host
+
+    system 'ssh', *args, err: IO::NULL
+  end
+
+  def start
+    args = []
+    args << '-f'
+    Command.config.forward_postgresql && args << '-L' << '7000:%s:%d' % [
+      Command.config.remote_db_host,
+      Command.config.remote_db_port,
+    ]
+    Command.config.forward_redis && args << '-L' << '7001:%s:%d' % [
+      Command.config.remote_redis_host,
+      Command.config.remote_redis_port,
+    ]
+    args << '-N'
+    args << '-o' << 'ControlMaster=yes'
+    args << '-o' << "ControlPath=#{Command.config.ssh_control_path}"
+    args << '-T'
+    args << Command.config.remote_host
+    
+    system 'ssh', *args
+  end
+end
+
+at_exit do
+  puts 'Stopping SSH tunnel/s'
+  Tunnel.stop
+end
+puts 'Starting SSH tunnel/s'
+Tunnel.start
+puts 'Starting console session'
+Console.start
