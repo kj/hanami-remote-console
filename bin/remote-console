@@ -21,6 +21,7 @@ module Command
   extend self
 
   def load_config
+    # TODO: Walk up the directory tree to find a config file.
     File.open('./.remote-console.json', 'r') do |f|
       JSON.parse(f.read).each do |key, value|
         config.__send__("#{key}=", value)
