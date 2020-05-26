@@ -6,6 +6,7 @@ require 'json'
 module Command
   extend Dry::Configurable
 
+  setting :forward_elasticsearch, true
   setting :forward_postgresql, true
   setting :forward_redis, true
   setting :remote_db_host, 'localhost'
@@ -13,6 +14,8 @@ module Command
   setting :remote_db_password
   setting :remote_db_port, 5432
   setting :remote_db_user
+  setting :remote_elasticsearch_host, 'localhost'
+  setting :remote_elasticsearch_port, '9200'
   setting :remote_host
   setting :remote_redis_host, 'localhost'
   setting :remote_redis_port, 6379
@@ -44,6 +47,7 @@ module Console
         Command.config.remote_db_password,
         Command.config.remote_db_name,
       ],
+      'ELASTICSEARCH_URL' => 'http://localhost:7002',
       'HANAMI_ENV' => 'production',
       'REDIS_URL' => 'redis://localhost:7001',
     }
@@ -69,6 +73,10 @@ module Tunnel
   def start
     args = []
     args << '-f'
+    Command.config.forward_elasticsearch && args << '-L' << '7002:%s:%d' % [
+      Command.config.remote_elasticsearch_host,
+      Command.config.remote_elasticsearch_port,
+    ]
     Command.config.forward_postgresql && args << '-L' << '7000:%s:%d' % [
       Command.config.remote_db_host,
       Command.config.remote_db_port,
